@@ -1,0 +1,27 @@
+{
+  "name": "docs_to_markdown",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun index.ts",
+    "cleanup:duplicates": "bun cleanup_duplicates.ts",
+    "reset:failed": "bun reset_failed.ts",
+    "process:images": "bun process_images.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.7"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@ai-sdk/google-vertex": "^4.0.1",
+    "ai": "^6.0.3",
+    "ink": "^6.6.0",
+    "react": "^19.2.3",
+    "sharp": "^0.34.5",
+    "zod": "^4.2.1"
+  }
+}
