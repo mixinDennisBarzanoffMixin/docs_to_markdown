@@ -117,7 +117,7 @@ Consistency in names, case numbers, and terminology is essential.
               const finalFilename = basename(fullPath);
               
               const imagePath = `../${this.config.inputDir}/${filename}`;
-              const sourceRef = `\n\n---\n### Source Image\n\n[ ![Source Image](${imagePath}) ](${imagePath})\n\n**File:** \`${filename}\`\n`;
+              const sourceRef = `\n\n---\n**Source File:** \`${filename}\`  \n![Source Image](<${imagePath}>)\n`;
               
               savedContent = input.content;
               const contentWithRef = savedContent + sourceRef;

@@ -66,9 +66,20 @@ If some files failed to process (e.g., due to API errors), you can reset their s
 bun run reset:failed
 ```
 
-### Process Images (Scanner Effect)
-This script processes images in `documents_in` to simulate a "Notebloc" or scanner effect (grayscale, thresholding, noise removal) and saves them to `documents_processed`. This can help improve OCR results for documents with poor lighting or colored backgrounds.
-
 ```bash
 bun run process:images
+```
+
+### Compress Images
+Compresses images from `documents_in` to `documents_compressed` with high efficiency (resizing and quality reduction) to save space.
+
+```bash
+bun run compress:images
+```
+
+### Create Word Document
+Combines all processed markdown files from `markdown_out` into a single `.docx` file, stripping out all image references and metadata footers.
+
+```bash
+bun run create:doc
 ```

@@ -7,7 +7,7 @@
     "start": "bun index.ts",
     "cleanup:duplicates": "bun cleanup_duplicates.ts",
     "reset:failed": "bun reset_failed.ts",
-    "process:images": "bun process_images.ts"
+    "compress:images": "bun compress_images.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -19,6 +19,7 @@
   "dependencies": {
     "@ai-sdk/google-vertex": "^4.0.1",
     "ai": "^6.0.3",
+    "docx": "^9.5.1",
     "ink": "^6.6.0",
     "react": "^19.2.3",
     "sharp": "^0.34.5",
