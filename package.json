@@ -8,6 +8,7 @@
     "cleanup:duplicates": "bun cleanup_duplicates.ts",
     "reset:failed": "bun reset_failed.ts",
     "compress:images": "bun compress_images.ts",
+    "pdf:images": "bun pdf_to_images.ts",
     "reset:all": "rm -f .docproc_state.json && rm -f markdown_out/* && rm -f documents_in/*"
   },
   "devDependencies": {

@@ -46,7 +46,7 @@ function validateConfig(config: Partial<Config>): asserts config is Config {
 
 export function loadConfigFromEnv(): Config {
   const batchSize = Number.parseInt(process.env.BATCH_SIZE ?? '20', 10);
-  const concurrency = Number.parseInt(process.env.CONCURRENCY ?? '10', 10);
+  const concurrency = Number.parseInt(process.env.CONCURRENCY ?? '1', 10);
   const auto = process.env.AUTO === 'true' || process.env.AUTO === '1';
 
   const config: Partial<Config> = {
@@ -54,7 +54,7 @@ export function loadConfigFromEnv(): Config {
     outputDir: process.env.OUTPUT_DIR ?? 'markdown_out',
     stateFile: process.env.STATE_FILE ?? '.docproc_state.json',
     batchSize: Number.isFinite(batchSize) && batchSize > 0 ? batchSize : 20,
-    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 10,
+    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
     modelId: process.env.MODEL_ID ?? 'gemini-2.5-flash',
     auto,
     vertexProject:

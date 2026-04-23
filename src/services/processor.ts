@@ -8,6 +8,30 @@ import { getOutputPath, sanitizeFilename } from '../lib/file-system';
 
 export class DocumentProcessor {
   constructor(private config: Config) {}
+  private lastDocumentDate = '';
+  private lastDocumentTitle = '';
+
+  private normalizeDateForFilename(dateText: string): string {
+    const raw = (dateText ?? '').trim();
+    const m = raw.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})|(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
+    if (!m) return 'unknown-date';
+
+    let year = '';
+    let month = '';
+    let day = '';
+
+    if (m[1] && m[2] && m[3]) {
+      day = m[1].padStart(2, '0');
+      month = m[2].padStart(2, '0');
+      year = m[3].length === 2 ? `20${m[3]}` : m[3];
+    } else if (m[4] && m[5] && m[6]) {
+      year = m[4];
+      month = m[5].padStart(2, '0');
+      day = m[6].padStart(2, '0');
+    }
+
+    return `${year}.${month}.${day}`;
+  }
 
   /**
    * Processes a single document image using Vertex AI.
@@ -56,8 +80,6 @@ export class DocumentProcessor {
       const file = Bun.file(join(this.config.inputDir, filename));
       const imageBuffer = await file.arrayBuffer();
       logger.debug(`[FILE READ] Finished reading image file: ${filename} as buffer of size ${imageBuffer.byteLength}`);
-      const imageBasename = filename.replace(/\.[^.]+$/, '');
-
       let savedContent = '';
       let savedOutputFile = '';
       let alreadySaved = false;
@@ -76,10 +98,22 @@ Consistency in names, case numbers, and terminology is essential.
 
 ## Instructions
 1. Convert the current document image to clean Markdown IN THE LANGUAGE OF THE DOCUMENT.
-2. Call 'save_markdown' with a descriptive title IN THE LANGUAGE OF THE DOCUMENT.
-   - Title: 2-5 words, describing document type/subject.
-   - Content: Full markdown extraction.`,
+2. Decide if this page starts a new document or continues the previous one.
+3. Call 'save_markdown' with:
+   - document_date: best date found on this page; if continuation and no date is present, keep previous document date.
+   - document_title: 2-7 words, descriptive title in document language.
+   - page_subtitle: 2-7 words for this specific page section (must differ across pages of same document).
+   - is_new_document: true for a new document, false for continuation.
+   - content: full markdown extraction.
+
+Naming policy:
+- Date must be first in filename (YYYY.MM.DD).
+- Do not use image filename as a naming hint.`,
         messages: [
+          ...((this.lastDocumentDate || this.lastDocumentTitle) ? [{
+            role: 'user',
+            content: `Previously inferred document metadata:\n- date: ${this.lastDocumentDate || 'unknown'}\n- title: ${this.lastDocumentTitle || 'unknown'}\nUse this only for continuity decision making.`
+          } as const] : []),
           ...(previousContext ? [{
             role: 'user',
             content: `Context from previous document(s):\n---\n${previousContext}\n---\n(End of context)`
@@ -96,7 +130,10 @@ Consistency in names, case numbers, and terminology is essential.
           save_markdown: tool({
             description: 'Save the extracted markdown to disk.',
             inputSchema: zodSchema(z.object({ 
-              filename: z.string().describe('Descriptive title for the file (e.g. "Court_Decision"). Do not include image ID or .md extension.'), 
+              document_date: z.string().describe('Document date found in content (prefer DD.MM.YYYY or YYYY-MM-DD).'),
+              document_title: z.string().describe('Descriptive title. Do not include extension.'),
+              page_subtitle: z.string().describe('Page-specific subtitle for this page (2-7 words).'),
+              is_new_document: z.boolean().describe('true if this page starts a new document; false if continuation.'),
               content: z.string().describe('The full extracted markdown content.')
             })),
             execute: async (input) => {
@@ -110,8 +147,31 @@ Consistency in names, case numbers, and terminology is essential.
               }
 
               logger.info(`[SAVING LOGIC] Preparing to save markdown for file: ${filename}`);
-              const titlePart = sanitizeFilename(input.filename).replace(/\.md$/i, '');
-              const desiredFilename = `${imageBasename}__${titlePart}.md`;
+              const normalizedDate = this.normalizeDateForFilename(input.document_date);
+              const hasParsedDate = normalizedDate !== 'unknown-date';
+              const parsedTitle = sanitizeFilename(input.document_title).replace(/\.md$/i, '');
+              const parsedSubtitle = sanitizeFilename(input.page_subtitle).replace(/\.md$/i, '');
+
+              // Safety override: if model marks continuation but the page has a different explicit date,
+              // treat it as a new document boundary.
+              const shouldForceNewDocument =
+                !input.is_new_document &&
+                hasParsedDate &&
+                !!this.lastDocumentDate &&
+                normalizedDate !== this.lastDocumentDate;
+
+              const resolvedIsNewDocument = input.is_new_document || shouldForceNewDocument;
+
+              const effectiveDate = resolvedIsNewDocument
+                ? (hasParsedDate ? normalizedDate : 'unknown-date')
+                : (this.lastDocumentDate || (hasParsedDate ? normalizedDate : 'unknown-date'));
+
+              const effectiveTitle = resolvedIsNewDocument
+                ? (parsedTitle || this.lastDocumentTitle || 'untitled_document')
+                : (this.lastDocumentTitle || parsedTitle || 'untitled_document');
+
+              const subtitlePart = parsedSubtitle || 'untitled_page';
+              const desiredFilename = `${effectiveDate}_${effectiveTitle}_${subtitlePart}.md`;
               
               const fullPath = getOutputPath(this.config.outputDir, desiredFilename, existingOutputFile);
               const finalFilename = basename(fullPath);
@@ -128,6 +188,8 @@ Consistency in names, case numbers, and terminology is essential.
               
               savedOutputFile = finalFilename;
               alreadySaved = true;
+              this.lastDocumentDate = effectiveDate;
+              this.lastDocumentTitle = effectiveTitle;
 
               logger.info(`[SAVED] Markdown for ${filename} stored as ${finalFilename}`);
               return { success: true, outputFile: finalFilename };
