@@ -1,10 +1,11 @@
 import { createVertex } from '@ai-sdk/google-vertex';
 import { generateText, tool, zodSchema, stepCountIs } from 'ai';
-import { join, basename } from 'path';
+import { rename } from 'fs/promises';
+import { join, basename, extname } from 'path';
 import { z } from 'zod';
 import type { Config } from '../types';
 import { logger } from '../lib/logger';
-import { getOutputPath, sanitizeFilename } from '../lib/file-system';
+import { getInputRenamePath, getOutputPath, sanitizeFilename } from '../lib/file-system';
 
 export class DocumentProcessor {
   constructor(private config: Config) {}
@@ -41,7 +42,7 @@ export class DocumentProcessor {
     previousContext?: string;
     existingOutputFile?: string;
     abortSignal?: AbortSignal;
-  }): Promise<{ outputFile: string; content: string }> {
+  }): Promise<{ outputFile: string; inputFile: string; content: string }> {
     const { filename, previousContext, existingOutputFile, abortSignal } = params;
     
     logger.info(`[PROCESS START] Processing file: ${filename}`, { 
@@ -82,6 +83,7 @@ export class DocumentProcessor {
       logger.debug(`[FILE READ] Finished reading image file: ${filename} as buffer of size ${imageBuffer.byteLength}`);
       let savedContent = '';
       let savedOutputFile = '';
+      let savedInputFile = filename;
       let alreadySaved = false;
 
       logger.info(`[GENERATION START] Starting generateText() for ${filename}`);
@@ -175,9 +177,13 @@ Naming policy:
               
               const fullPath = getOutputPath(this.config.outputDir, desiredFilename, existingOutputFile);
               const finalFilename = basename(fullPath);
+              const imageExtension = extname(filename) || '.jpg';
+              const desiredImageFilename = finalFilename.replace(/\.md$/i, imageExtension.toLowerCase());
+              const finalImagePath = getInputRenamePath(this.config.inputDir, filename, desiredImageFilename);
+              const finalImageFilename = basename(finalImagePath);
               
-              const imagePath = `../${this.config.inputDir}/${filename}`;
-              const sourceRef = `\n\n---\n**Source File:** \`${filename}\`  \n![Source Image](<${imagePath}>)\n`;
+              const imagePath = `../${this.config.inputDir}/${finalImageFilename}`;
+              const sourceRef = `\n\n---\n**Source File:** \`${finalImageFilename}\`  \n![Source Image](<${imagePath}>)\n`;
               
               savedContent = input.content;
               const contentWithRef = savedContent + sourceRef;
@@ -185,14 +191,19 @@ Naming policy:
               logger.info(`[WRITING FILE] Saving markdown for ${filename} to ${fullPath}`);
               // Use Bun.write for writing
               await Bun.write(fullPath, contentWithRef);
+
+              if (finalImageFilename !== filename) {
+                await rename(join(this.config.inputDir, filename), finalImagePath);
+              }
               
               savedOutputFile = finalFilename;
+              savedInputFile = finalImageFilename;
               alreadySaved = true;
               this.lastDocumentDate = effectiveDate;
               this.lastDocumentTitle = effectiveTitle;
 
-              logger.info(`[SAVED] Markdown for ${filename} stored as ${finalFilename}`);
-              return { success: true, outputFile: finalFilename };
+              logger.info(`[SAVED] Markdown for ${filename} stored as ${finalFilename}`, { sourceFile: finalImageFilename });
+              return { success: true, outputFile: finalFilename, inputFile: finalImageFilename };
             },
           }),
         },
@@ -206,14 +217,18 @@ Naming policy:
 
       if (savedOutputFile) {
         logger.info(`[FINAL RETURN] Returning (early) for ${filename} (savedOutputFile)`, { savedOutputFile });
-        return { outputFile: savedOutputFile, content: savedContent };
+        return { outputFile: savedOutputFile, inputFile: savedInputFile, content: savedContent };
       }
       
       logger.debug(`[TOOL RESULT LOOKUP] Searching for 'save_markdown' tool result for ${filename}`);
       const tr = res.toolResults.find(r => r.toolName === 'save_markdown');
       if (tr?.type === 'tool-result' && (tr.output as any)?.outputFile) {
         logger.info(`[FINAL RETURN] Returning for ${filename} from tool result`, { outputFile: (tr.output as any).outputFile });
-        return { outputFile: (tr.output as any).outputFile, content: savedContent };
+        return {
+          outputFile: (tr.output as any).outputFile,
+          inputFile: (tr.output as any).inputFile || savedInputFile,
+          content: savedContent
+        };
       }
 
       logger.error(`[ERROR] Model finished without successfully calling save_markdown tool for ${filename}`);
@@ -235,4 +250,3 @@ Naming policy:
     }
   }
 }
-

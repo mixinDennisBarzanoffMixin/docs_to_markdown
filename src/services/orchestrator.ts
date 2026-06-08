@@ -146,7 +146,7 @@ export class BatchOrchestrator {
         const p = (async () => {
           await saveState(this.config.stateFile, this.state);
           try {
-            const { outputFile, content } = await this.processor.processFile({ 
+            const { outputFile, inputFile, content } = await this.processor.processFile({
               filename, 
               previousContext: contextToPass,
               existingOutputFile: fs.outputFile,
@@ -157,6 +157,10 @@ export class BatchOrchestrator {
             fs.outputFile = outputFile;
             fs.completedAt = new Date().toISOString();
             fs.error = undefined;
+            if (inputFile !== filename) {
+              delete this.state.files[filename];
+              this.state.files[inputFile] = fs;
+            }
             this.succeededThisRun++;
             
             // Update continuity context
@@ -217,4 +221,3 @@ export class BatchOrchestrator {
     return out;
   }
 }
-

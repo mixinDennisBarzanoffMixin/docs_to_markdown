@@ -1,4 +1,4 @@
-import { join, basename } from 'path';
+import { join } from 'path';
 import { existsSync } from 'fs';
 import { mkdir } from 'fs/promises';
 
@@ -69,3 +69,31 @@ export function getOutputPath(outputDir: string, desiredFilename: string, existi
   }
 }
 
+/**
+ * Gets a unique path in the input directory for a renamed source image.
+ */
+export function getInputRenamePath(inputDir: string, currentFilename: string, desiredFilename: string): string {
+  if (currentFilename === desiredFilename) {
+    return join(inputDir, currentFilename);
+  }
+
+  const initialPath = join(inputDir, desiredFilename);
+
+  if (!existsSync(initialPath)) {
+    return initialPath;
+  }
+
+  const dotIndex = desiredFilename.lastIndexOf('.');
+  const stem = dotIndex > 0 ? desiredFilename.slice(0, dotIndex) : desiredFilename;
+  const ext = dotIndex > 0 ? desiredFilename.slice(dotIndex) : '';
+  let i = 2;
+
+  while (true) {
+    const candidate = `${stem}__${i}${ext}`;
+    const fullPath = join(inputDir, candidate);
+    if (!existsSync(fullPath)) {
+      return fullPath;
+    }
+    i++;
+  }
+}
