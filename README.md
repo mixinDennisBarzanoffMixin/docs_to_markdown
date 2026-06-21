@@ -1,6 +1,6 @@
 # Document to Markdown Processor
 
-A CLI tool that uses Google Vertex AI (Gemini) to process document images and convert them to Markdown.
+A CLI tool that uses your local Codex subscription by default, or Google Vertex AI (Gemini) when configured, to process document images and convert them to Markdown.
 
 ## Features
 
@@ -16,18 +16,27 @@ A CLI tool that uses Google Vertex AI (Gemini) to process document images and co
    bun install
    ```
 
-2. **Configure Environment**
-   Create a `.env` file with your Google Cloud credentials.
+2. **Configure AI Provider**
+   By default, the tool uses `codex exec` when `$CODEX_HOME/auth.json` or `~/.codex/auth.json` exists. Sign in once with:
 
    ```bash
-   cp .env.example .env
+   codex login
    ```
 
-   **Variables:**
-   - `GOOGLE_VERTEX_LOCATION`: Region (e.g., `us-central1`).
-   - `MODEL_ID`: Model to use (default: `gemini-1.5-flash`). Set to your preferred model (e.g. `gemini-2.0-flash-exp`).
+   The Codex default model is `gpt-5.5`. You can override it with `MODEL_ID`.
 
-   *Note: Ensure you have the [Vertex AI API enabled](https://console.cloud.google.com/vertex-ai) in your Google Cloud project.*
+   To force Vertex instead:
+
+   ```bash
+   AI_PROVIDER=vertex MODEL_ID=gemini-2.5-flash bun run index.ts
+   ```
+
+   Vertex variables:
+   - `GOOGLE_VERTEX_LOCATION`: Region (e.g., `us-central1`).
+   - `GOOGLE_VERTEX_PROJECT` or `GCLOUD_PROJECT`: Google Cloud project.
+   - `GOOGLE_VERTEX_API_KEY`: Optional API key if your setup uses one.
+
+   *Note: For Vertex, ensure you have the [Vertex AI API enabled](https://console.cloud.google.com/vertex-ai) in your Google Cloud project.*
 
 3. **Add Images**
    Place your document images (`.jpg`, `.png`, `.webp`) in the `documents_in` folder.
@@ -42,7 +51,7 @@ bun run index.ts
 
 The tool will:
 1. Scan `documents_in` for new images.
-2. Send each image to Gemini.
+2. Send each image through Codex CLI or Vertex.
 3. Generate a markdown file in `markdown_out` with a descriptive name.
 4. Mark the file as processed so it won't be re-run if you restart.
 

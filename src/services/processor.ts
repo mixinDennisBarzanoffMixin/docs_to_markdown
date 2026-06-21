@@ -1,16 +1,230 @@
 import { createVertex } from '@ai-sdk/google-vertex';
 import { generateText, tool, zodSchema, stepCountIs } from 'ai';
-import { rename } from 'fs/promises';
+import { mkdtemp, readFile, rename, rm, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, basename, extname } from 'path';
 import { z } from 'zod';
 import type { Config } from '../types';
 import { logger } from '../lib/logger';
 import { getInputRenamePath, getOutputPath, sanitizeFilename } from '../lib/file-system';
 
+const markdownResultSchema = z.object({
+  document_date: z.string().describe('Document date found in content (prefer DD.MM.YYYY or YYYY-MM-DD).'),
+  document_title: z.string().describe('Descriptive title. Do not include extension.'),
+  page_subtitle: z.string().describe('Page-specific subtitle for this page (2-7 words).'),
+  is_new_document: z.boolean().describe('true if this page starts a new document; false if continuation.'),
+  content: z.string().describe('The full extracted markdown content.'),
+});
+
+type MarkdownResult = z.infer<typeof markdownResultSchema>;
+
 export class DocumentProcessor {
   constructor(private config: Config) {}
   private lastDocumentDate = '';
   private lastDocumentTitle = '';
+
+  private createVertexModel() {
+    const vertex = createVertex({
+      apiKey: this.config.vertexApiKey,
+      project: this.config.vertexProject,
+      location: this.config.vertexLocation,
+    });
+
+    return vertex(this.config.modelId as any);
+  }
+
+  private buildInstructions(previousContext: string | undefined, outputMode: 'tool' | 'json'): string {
+    const outputInstruction = outputMode === 'tool'
+      ? `3. Call 'save_markdown' with:
+   - document_date: best date found on this page; if continuation and no date is present, keep previous document date.
+   - document_title: 2-7 words, descriptive title in document language.
+   - page_subtitle: 2-7 words for this specific page section (must differ across pages of same document).
+   - is_new_document: true for a new document, false for continuation.
+   - content: full markdown extraction.`
+      : `3. Return structured JSON with:
+   - document_date: best date found on this page; if continuation and no date is present, keep previous document date.
+   - document_title: 2-7 words, descriptive title in document language.
+   - page_subtitle: 2-7 words for this specific page section (must differ across pages of same document).
+   - is_new_document: true for a new document, false for continuation.
+   - content: full markdown extraction.`;
+
+    const parts = [
+      `You are a document digitization expert. Digitize documents to clean Markdown.
+Use rich formatting (# H1, ## H2, **bold**, tables, ---).
+
+## Continuity & Context
+The documents are processed in order. You will be provided with the end of the previous document if available.
+Use this context to determine if this document is a continuation of the same court case or a new one.
+Consistency in names, case numbers, and terminology is essential.
+
+## Instructions
+1. Convert the current document image to clean Markdown IN THE LANGUAGE OF THE DOCUMENT.
+2. Decide if this page starts a new document or continues the previous one.
+${outputInstruction}
+
+Naming policy:
+- Date must be first in filename (YYYY.MM.DD).
+- Do not use image filename as a naming hint.`,
+    ];
+
+    if (this.lastDocumentDate || this.lastDocumentTitle) {
+      parts.push(`Previously inferred document metadata:
+- date: ${this.lastDocumentDate || 'unknown'}
+- title: ${this.lastDocumentTitle || 'unknown'}
+Use this only for continuity decision making.`);
+    }
+
+    if (previousContext) {
+      parts.push(`Context from previous document(s):
+---
+${previousContext}
+---
+(End of context)`);
+    }
+
+    return parts.join('\n\n');
+  }
+
+  private async saveMarkdown(
+    filename: string,
+    input: MarkdownResult,
+    existingOutputFile?: string,
+  ): Promise<{ outputFile: string; inputFile: string; content: string }> {
+    logger.info(`[SAVING LOGIC] Preparing to save markdown for file: ${filename}`);
+    const normalizedDate = this.normalizeDateForFilename(input.document_date);
+    const hasParsedDate = normalizedDate !== 'unknown-date';
+    const parsedTitle = sanitizeFilename(input.document_title).replace(/\.md$/i, '');
+    const parsedSubtitle = sanitizeFilename(input.page_subtitle).replace(/\.md$/i, '');
+
+    // Safety override: if model marks continuation but the page has a different explicit date,
+    // treat it as a new document boundary.
+    const shouldForceNewDocument =
+      !input.is_new_document &&
+      hasParsedDate &&
+      !!this.lastDocumentDate &&
+      normalizedDate !== this.lastDocumentDate;
+
+    const resolvedIsNewDocument = input.is_new_document || shouldForceNewDocument;
+
+    const effectiveDate = resolvedIsNewDocument
+      ? (hasParsedDate ? normalizedDate : 'unknown-date')
+      : (this.lastDocumentDate || (hasParsedDate ? normalizedDate : 'unknown-date'));
+
+    const effectiveTitle = resolvedIsNewDocument
+      ? (parsedTitle || this.lastDocumentTitle || 'untitled_document')
+      : (this.lastDocumentTitle || parsedTitle || 'untitled_document');
+
+    const subtitlePart = parsedSubtitle || 'untitled_page';
+    const desiredFilename = `${effectiveDate}_${effectiveTitle}_${subtitlePart}.md`;
+
+    const fullPath = getOutputPath(this.config.outputDir, desiredFilename, existingOutputFile);
+    const finalFilename = basename(fullPath);
+    const imageExtension = extname(filename) || '.jpg';
+    const desiredImageFilename = finalFilename.replace(/\.md$/i, imageExtension.toLowerCase());
+    const finalImagePath = getInputRenamePath(this.config.inputDir, filename, desiredImageFilename);
+    const finalImageFilename = basename(finalImagePath);
+
+    const imagePath = `../${this.config.inputDir}/${finalImageFilename}`;
+    const sourceRef = `\n\n---\n**Source File:** \`${finalImageFilename}\`  \n![Source Image](<${imagePath}>)\n`;
+
+    const contentWithRef = input.content + sourceRef;
+
+    logger.info(`[WRITING FILE] Saving markdown for ${filename} to ${fullPath}`);
+    await Bun.write(fullPath, contentWithRef);
+
+    if (finalImageFilename !== filename) {
+      await rename(join(this.config.inputDir, filename), finalImagePath);
+    }
+
+    this.lastDocumentDate = effectiveDate;
+    this.lastDocumentTitle = effectiveTitle;
+
+    logger.info(`[SAVED] Markdown for ${filename} stored as ${finalFilename}`, { sourceFile: finalImageFilename });
+    return { outputFile: finalFilename, inputFile: finalImageFilename, content: input.content };
+  }
+
+  private async processFileWithCodexCli(params: {
+    filename: string;
+    previousContext?: string;
+    existingOutputFile?: string;
+    abortSignal?: AbortSignal;
+  }): Promise<{ outputFile: string; inputFile: string; content: string }> {
+    const { filename, previousContext, existingOutputFile, abortSignal } = params;
+    const workDir = await mkdtemp(join(tmpdir(), 'docs-to-markdown-codex-'));
+    const schemaPath = join(workDir, 'schema.json');
+    const outputPath = join(workDir, 'result.json');
+    const imagePath = join(this.config.inputDir, filename);
+    const localCodexBin = join(process.cwd(), 'node_modules', '.bin', 'codex');
+    const codexBin = existsSync(localCodexBin) ? localCodexBin : 'codex';
+    if (!existsSync(imagePath)) {
+      throw new Error(`Input image does not exist: ${imagePath}`);
+    }
+
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        document_date: { type: 'string' },
+        document_title: { type: 'string' },
+        page_subtitle: { type: 'string' },
+        is_new_document: { type: 'boolean' },
+        content: { type: 'string' },
+      },
+      required: ['document_date', 'document_title', 'page_subtitle', 'is_new_document', 'content'],
+    };
+
+    const prompt = `${this.buildInstructions(previousContext, 'json')}
+
+Please convert the attached document image to markdown and return only the requested JSON shape.`;
+
+    try {
+      await writeFile(schemaPath, JSON.stringify(schema), 'utf8');
+
+      const proc = Bun.spawn(
+        [
+          codexBin,
+          'exec',
+          '--ephemeral',
+          '--ignore-user-config',
+          '--sandbox',
+          'read-only',
+          '--model',
+          this.config.modelId,
+          '--image',
+          imagePath,
+          '--output-schema',
+          schemaPath,
+          '--output-last-message',
+          outputPath,
+          prompt,
+        ],
+        {
+          cwd: process.cwd(),
+          stdout: 'pipe',
+          stderr: 'pipe',
+          signal: abortSignal,
+          env: process.env,
+        },
+      );
+
+      const [exitCode, stdout, stderr] = await Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+
+      if (exitCode !== 0) {
+        throw new Error(`codex exec failed with exit code ${exitCode}: ${stderr || stdout}`);
+      }
+
+      const raw = await readFile(outputPath, 'utf8');
+      const parsed = markdownResultSchema.parse(JSON.parse(raw));
+      return await this.saveMarkdown(filename, parsed, existingOutputFile);
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  }
 
   private normalizeDateForFilename(dateText: string): string {
     const raw = (dateText ?? '').trim();
@@ -51,6 +265,15 @@ export class DocumentProcessor {
       abortSignalExists: !!abortSignal 
     });
 
+    if (this.config.aiProvider === 'codex') {
+      return await this.processFileWithCodexCli({
+        filename,
+        previousContext,
+        existingOutputFile,
+        abortSignal,
+      });
+    }
+
     const timeoutController = new AbortController();
     const timeoutId = setTimeout(() => {
       logger.warn(`[TIMEOUT] Timeout reached for file: ${filename}`);
@@ -62,20 +285,15 @@ export class DocumentProcessor {
       : timeoutController.signal;
 
     try {
-      logger.debug(`[SETUP] Creating Vertex client for file: ${filename}`, {
+      logger.debug(`[SETUP] Creating AI client for file: ${filename}`, {
+        aiProvider: this.config.aiProvider,
         vertexApiKey: !!this.config.vertexApiKey,
         project: this.config.vertexProject,
         location: this.config.vertexLocation,
         modelId: this.config.modelId
       });
-      const vertex = createVertex({
-        apiKey: this.config.vertexApiKey,
-        project: this.config.vertexProject,
-        location: this.config.vertexLocation,
-      });
-
       logger.debug(`[MODEL] Instantiating model for file: ${filename}`, { modelId: this.config.modelId });
-      const model = vertex(this.config.modelId as any);
+      const model = this.createVertexModel();
 
       logger.debug(`[FILE READ] Reading image file: ${filename} from ${this.config.inputDir}`);
       const file = Bun.file(join(this.config.inputDir, filename));
@@ -90,36 +308,8 @@ export class DocumentProcessor {
       const res = await generateText({
         model,
         abortSignal: combinedSignal,
-        system: `You are a document digitization expert. Digitize documents to clean Markdown.
-Use rich formatting (# H1, ## H2, **bold**, tables, ---).
-
-## Continuity & Context
-The documents are processed in order. You will be provided with the end of the previous document if available.
-Use this context to determine if this document is a continuation of the same court case or a new one.
-Consistency in names, case numbers, and terminology is essential.
-
-## Instructions
-1. Convert the current document image to clean Markdown IN THE LANGUAGE OF THE DOCUMENT.
-2. Decide if this page starts a new document or continues the previous one.
-3. Call 'save_markdown' with:
-   - document_date: best date found on this page; if continuation and no date is present, keep previous document date.
-   - document_title: 2-7 words, descriptive title in document language.
-   - page_subtitle: 2-7 words for this specific page section (must differ across pages of same document).
-   - is_new_document: true for a new document, false for continuation.
-   - content: full markdown extraction.
-
-Naming policy:
-- Date must be first in filename (YYYY.MM.DD).
-- Do not use image filename as a naming hint.`,
+        system: this.buildInstructions(previousContext, 'tool'),
         messages: [
-          ...((this.lastDocumentDate || this.lastDocumentTitle) ? [{
-            role: 'user',
-            content: `Previously inferred document metadata:\n- date: ${this.lastDocumentDate || 'unknown'}\n- title: ${this.lastDocumentTitle || 'unknown'}\nUse this only for continuity decision making.`
-          } as const] : []),
-          ...(previousContext ? [{
-            role: 'user',
-            content: `Context from previous document(s):\n---\n${previousContext}\n---\n(End of context)`
-          } as const] : []),
           { 
             role: 'user', 
             content: [
@@ -131,13 +321,7 @@ Naming policy:
         tools: {
           save_markdown: tool({
             description: 'Save the extracted markdown to disk.',
-            inputSchema: zodSchema(z.object({ 
-              document_date: z.string().describe('Document date found in content (prefer DD.MM.YYYY or YYYY-MM-DD).'),
-              document_title: z.string().describe('Descriptive title. Do not include extension.'),
-              page_subtitle: z.string().describe('Page-specific subtitle for this page (2-7 words).'),
-              is_new_document: z.boolean().describe('true if this page starts a new document; false if continuation.'),
-              content: z.string().describe('The full extracted markdown content.')
-            })),
+            inputSchema: zodSchema(markdownResultSchema),
             execute: async (input) => {
               logger.debug(`[TOOL INVOKED] save_markdown called for ${filename} with input:`, input);
               if (alreadySaved) {
@@ -148,62 +332,13 @@ Naming policy:
                 return { success: true, outputFile: savedOutputFile };
               }
 
-              logger.info(`[SAVING LOGIC] Preparing to save markdown for file: ${filename}`);
-              const normalizedDate = this.normalizeDateForFilename(input.document_date);
-              const hasParsedDate = normalizedDate !== 'unknown-date';
-              const parsedTitle = sanitizeFilename(input.document_title).replace(/\.md$/i, '');
-              const parsedSubtitle = sanitizeFilename(input.page_subtitle).replace(/\.md$/i, '');
-
-              // Safety override: if model marks continuation but the page has a different explicit date,
-              // treat it as a new document boundary.
-              const shouldForceNewDocument =
-                !input.is_new_document &&
-                hasParsedDate &&
-                !!this.lastDocumentDate &&
-                normalizedDate !== this.lastDocumentDate;
-
-              const resolvedIsNewDocument = input.is_new_document || shouldForceNewDocument;
-
-              const effectiveDate = resolvedIsNewDocument
-                ? (hasParsedDate ? normalizedDate : 'unknown-date')
-                : (this.lastDocumentDate || (hasParsedDate ? normalizedDate : 'unknown-date'));
-
-              const effectiveTitle = resolvedIsNewDocument
-                ? (parsedTitle || this.lastDocumentTitle || 'untitled_document')
-                : (this.lastDocumentTitle || parsedTitle || 'untitled_document');
-
-              const subtitlePart = parsedSubtitle || 'untitled_page';
-              const desiredFilename = `${effectiveDate}_${effectiveTitle}_${subtitlePart}.md`;
-              
-              const fullPath = getOutputPath(this.config.outputDir, desiredFilename, existingOutputFile);
-              const finalFilename = basename(fullPath);
-              const imageExtension = extname(filename) || '.jpg';
-              const desiredImageFilename = finalFilename.replace(/\.md$/i, imageExtension.toLowerCase());
-              const finalImagePath = getInputRenamePath(this.config.inputDir, filename, desiredImageFilename);
-              const finalImageFilename = basename(finalImagePath);
-              
-              const imagePath = `../${this.config.inputDir}/${finalImageFilename}`;
-              const sourceRef = `\n\n---\n**Source File:** \`${finalImageFilename}\`  \n![Source Image](<${imagePath}>)\n`;
-              
-              savedContent = input.content;
-              const contentWithRef = savedContent + sourceRef;
-              
-              logger.info(`[WRITING FILE] Saving markdown for ${filename} to ${fullPath}`);
-              // Use Bun.write for writing
-              await Bun.write(fullPath, contentWithRef);
-
-              if (finalImageFilename !== filename) {
-                await rename(join(this.config.inputDir, filename), finalImagePath);
-              }
-              
-              savedOutputFile = finalFilename;
-              savedInputFile = finalImageFilename;
+              const saved = await this.saveMarkdown(filename, input, existingOutputFile);
+              savedContent = saved.content;
+              savedOutputFile = saved.outputFile;
+              savedInputFile = saved.inputFile;
               alreadySaved = true;
-              this.lastDocumentDate = effectiveDate;
-              this.lastDocumentTitle = effectiveTitle;
 
-              logger.info(`[SAVED] Markdown for ${filename} stored as ${finalFilename}`, { sourceFile: finalImageFilename });
-              return { success: true, outputFile: finalFilename, inputFile: finalImageFilename };
+              return { success: true, outputFile: savedOutputFile, inputFile: savedInputFile };
             },
           }),
         },

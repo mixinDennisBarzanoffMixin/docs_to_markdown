@@ -145,7 +145,7 @@ export default function App() {
           {config.auto ? <Text color="yellow">[AUTO MODE]</Text> : <Text color="blue">[MANUAL MODE]</Text>}
         </Text>
       </Box>
-      <Text dimColor>{config.modelId} | Batch: {config.batchSize} | Conc: {config.concurrency}</Text>
+      <Text dimColor>{config.aiProvider} / {config.modelId} | Batch: {config.batchSize} | Conc: {config.concurrency}</Text>
       
       <Box marginY={1} borderStyle="round" borderColor="gray" paddingX={1}>
         <Text>

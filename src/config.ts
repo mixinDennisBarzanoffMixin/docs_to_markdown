@@ -1,4 +1,5 @@
 export type Config = {
+  aiProvider: 'codex' | 'vertex';
   inputDir: string;
   outputDir: string;
   stateFile: string;
@@ -14,6 +15,10 @@ export type Config = {
 
 function validateConfig(config: Partial<Config>): asserts config is Config {
   const errors: string[] = [];
+
+  if (config.aiProvider !== 'codex' && config.aiProvider !== 'vertex') {
+    errors.push('AI_PROVIDER must be "codex" or "vertex".');
+  }
 
   if (!config.inputDir || typeof config.inputDir !== 'string' || !config.inputDir.trim()) {
     errors.push('INPUT_DIR is missing or invalid.');
@@ -48,14 +53,22 @@ export function loadConfigFromEnv(): Config {
   const batchSize = Number.parseInt(process.env.BATCH_SIZE ?? '20', 10);
   const concurrency = Number.parseInt(process.env.CONCURRENCY ?? '1', 10);
   const auto = process.env.AUTO === 'true' || process.env.AUTO === '1';
+  const codexHome = process.env.CODEX_HOME ?? `${process.env.HOME}/.codex`;
+  const codexAuthPath = `${codexHome}/auth.json`;
+  const inferredProvider = process.env.AI_PROVIDER === 'vertex' || process.env.AI_PROVIDER === 'codex'
+    ? process.env.AI_PROVIDER
+    : Bun.file(codexAuthPath).size > 0
+      ? 'codex'
+      : 'vertex';
 
   const config: Partial<Config> = {
+    aiProvider: inferredProvider,
     inputDir: process.env.INPUT_DIR ?? 'documents_in',
     outputDir: process.env.OUTPUT_DIR ?? 'markdown_out',
     stateFile: process.env.STATE_FILE ?? '.docproc_state.json',
     batchSize: Number.isFinite(batchSize) && batchSize > 0 ? batchSize : 20,
     concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
-    modelId: process.env.MODEL_ID ?? 'gemini-2.5-flash',
+    modelId: process.env.MODEL_ID ?? (inferredProvider === 'codex' ? 'gpt-5.5' : 'gemini-2.5-flash'),
     auto,
     vertexProject:
       process.env.GOOGLE_VERTEX_PROJECT ?? process.env.GCLOUD_PROJECT ?? undefined,
