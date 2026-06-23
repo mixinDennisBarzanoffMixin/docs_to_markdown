@@ -23,7 +23,7 @@ A CLI tool that uses your local Codex subscription by default, or Google Vertex 
    codex login
    ```
 
-   The Codex default model is `gpt-5.5`. You can override it with `MODEL_ID`.
+   The Codex default model is `gpt-5.3-codex-spark` for faster, cheaper processing. You can override it with `MODEL_ID`.
 
    To force Vertex instead:
 

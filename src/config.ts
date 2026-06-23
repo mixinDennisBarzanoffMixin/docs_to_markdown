@@ -68,7 +68,7 @@ export function loadConfigFromEnv(): Config {
     stateFile: process.env.STATE_FILE ?? '.docproc_state.json',
     batchSize: Number.isFinite(batchSize) && batchSize > 0 ? batchSize : 20,
     concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
-    modelId: process.env.MODEL_ID ?? (inferredProvider === 'codex' ? 'gpt-5.5' : 'gemini-2.5-flash'),
+    modelId: process.env.MODEL_ID ?? (inferredProvider === 'codex' ? 'gpt-5.3-codex-spark' : 'gemini-2.5-flash'),
     auto,
     vertexProject:
       process.env.GOOGLE_VERTEX_PROJECT ?? process.env.GCLOUD_PROJECT ?? undefined,
