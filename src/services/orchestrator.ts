@@ -100,91 +100,70 @@ export class BatchOrchestrator {
   }
 
   /**
-   * Processes a single batch of files with defined concurrency.
+   * Processes a single batch strictly in sequence.
    */
   private async processBatch(batch: string[], batchIndex: number) {
     const { onEvent, abortSignal } = this.hooks;
-    let cursor = 0;
-    const inFlight = new Set<Promise<void>>();
-
-    while (cursor < batch.length || inFlight.size > 0) {
+    for (let cursor = 0; cursor < batch.length; cursor++) {
       if (abortSignal?.aborted) break;
 
       // Systemic failure check: if 3 consecutive failures in a batch and no successes, stop.
       const batchProcessed = batch.slice(0, cursor);
       const batchFailures = batchProcessed.filter(f => this.state.files[f]?.status === 'failed').length;
-      if (batchFailures >= 3 && this.succeededThisRun === 0 && inFlight.size === 0 && cursor > 0) {
+      if (batchFailures >= 3 && this.succeededThisRun === 0 && cursor > 0) {
         logger.error('Batch failing consistently. Stopping run for safety.');
         break;
       }
 
-      // Fill up the concurrency slots
-      while (inFlight.size < this.config.concurrency && cursor < batch.length && !abortSignal?.aborted) {
-        const filename = batch[cursor]!;
-        const indexInBatch = ++cursor;
+      const filename = batch[cursor]!;
+      const indexInBatch = cursor + 1;
 
-        const fs = getOrInitFileState(this.state, filename);
-        if (fs.status === 'completed') continue;
+      const fs = getOrInitFileState(this.state, filename);
+      if (fs.status === 'completed') continue;
 
-        fs.status = 'processing';
-        fs.attempts += 1;
-        fs.lastAttemptAt = new Date().toISOString();
+      fs.status = 'processing';
+      fs.attempts += 1;
+      fs.lastAttemptAt = new Date().toISOString();
 
-        onEvent?.({ 
-          type: 'file-start', 
-          filename, 
-          attempt: fs.attempts, 
-          batchIndex, 
-          indexInBatch, 
-          batchSize: batch.length, 
-          stats: this.computeStats() 
+      onEvent?.({
+        type: 'file-start',
+        filename,
+        attempt: fs.attempts,
+        batchIndex,
+        indexInBatch,
+        batchSize: batch.length,
+        stats: this.computeStats()
+      });
+
+      await saveState(this.config.stateFile, this.state);
+      try {
+        const { outputFile, inputFile, content } = await this.processor.processFile({
+          filename,
+          previousContext: this.globalPreviousContext,
+          existingOutputFile: fs.outputFile,
+          abortSignal
         });
-
-        // Capture context at the moment of start (though it's updated as we go)
-        const contextToPass = this.globalPreviousContext;
-
-        const p = (async () => {
-          await saveState(this.config.stateFile, this.state);
-          try {
-            const { outputFile, inputFile, content } = await this.processor.processFile({
-              filename, 
-              previousContext: contextToPass,
-              existingOutputFile: fs.outputFile,
-              abortSignal 
-            });
             
-            fs.status = 'completed';
-            fs.outputFile = outputFile;
-            fs.completedAt = new Date().toISOString();
-            fs.error = undefined;
-            if (inputFile !== filename) {
-              delete this.state.files[filename];
-              this.state.files[inputFile] = fs;
-            }
-            this.succeededThisRun++;
+        fs.status = 'completed';
+        fs.outputFile = outputFile;
+        fs.completedAt = new Date().toISOString();
+        fs.error = undefined;
+        if (inputFile !== filename) {
+          delete this.state.files[filename];
+          this.state.files[inputFile] = fs;
+        }
+        this.succeededThisRun++;
             
-            // Update continuity context
-            this.globalPreviousContext = content.slice(-2000);
+        this.globalPreviousContext = content.slice(-2000);
             
-            onEvent?.({ type: 'file-success', filename, outputFile, stats: this.computeStats() });
-          } catch (e: any) {
-            fs.status = 'failed';
-            fs.error = e.message || String(e);
-            this.failedThisRun++;
-            onEvent?.({ type: 'file-failed', filename, error: fs.error!, stats: this.computeStats() });
-          } finally {
-            await saveState(this.config.stateFile, this.state);
-          }
-        })();
-
-        const wrapped = p.finally(() => inFlight.delete(wrapped));
-        inFlight.add(wrapped);
-
-        if (this.config.concurrency === 1) await wrapped;
-      }
-
-      if (inFlight.size > 0) {
-        await Promise.race(inFlight);
+        onEvent?.({ type: 'file-success', filename, outputFile, stats: this.computeStats() });
+      } catch (e: any) {
+        fs.status = 'failed';
+        fs.error = e.message || String(e);
+        this.failedThisRun++;
+        onEvent?.({ type: 'file-failed', filename, error: fs.error!, stats: this.computeStats() });
+      } finally {
+        await saveState(this.config.stateFile, this.state);
       }
     }
   }

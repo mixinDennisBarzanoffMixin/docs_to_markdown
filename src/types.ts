@@ -22,7 +22,6 @@ export type Config = {
   outputDir: string;
   stateFile: string;
   batchSize: number;
-  concurrency: number;
   modelId: string;
   auto: boolean;
   vertexProject?: string;
