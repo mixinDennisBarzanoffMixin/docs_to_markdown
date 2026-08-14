@@ -12,7 +12,7 @@
     "reset:all": "rm -f .docproc_state.json && mkdir -p markdown_out documents_in && find markdown_out documents_in -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "1.3.5",
     "@types/react": "^19.2.7"
   },
   "peerDependencies": {
