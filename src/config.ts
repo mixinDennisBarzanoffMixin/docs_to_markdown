@@ -61,7 +61,7 @@ export function loadConfigFromEnv(): Config {
     outputDir: process.env.OUTPUT_DIR ?? 'markdown_out',
     stateFile: process.env.STATE_FILE ?? '.docproc_state.json',
     batchSize: Number.isFinite(batchSize) && batchSize > 0 ? batchSize : 20,
-    modelId: process.env.MODEL_ID ?? (inferredProvider === 'codex' ? 'gpt-5.3-codex-spark' : 'gemini-2.5-flash'),
+    modelId: process.env.MODEL_ID ?? (inferredProvider === 'codex' ? 'gpt-5.4-mini' : 'gemini-2.5-flash'),
     auto,
     vertexProject:
       process.env.GOOGLE_VERTEX_PROJECT ?? process.env.GCLOUD_PROJECT ?? undefined,

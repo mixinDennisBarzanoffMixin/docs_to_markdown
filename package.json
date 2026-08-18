@@ -9,7 +9,7 @@
     "reset:failed": "bun reset_failed.ts",
     "compress:images": "bun compress_images.ts",
     "pdf:images": "bun pdf_to_images.ts",
-    "reset:all": "rm -f .docproc_state.json && mkdir -p markdown_out documents_in && find markdown_out documents_in -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
+    "reset:all": "find . -maxdepth 1 -type f -name '.docproc_state*.json' -delete && mkdir -p markdown_out documents_in && find markdown_out documents_in -mindepth 1 -maxdepth 1 -exec rm -rf {} +"
   },
   "devDependencies": {
     "@types/bun": "1.3.5",

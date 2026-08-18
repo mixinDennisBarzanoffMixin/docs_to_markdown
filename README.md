@@ -23,7 +23,7 @@ A CLI tool that uses your local Codex subscription by default, or Google Vertex 
    codex login
    ```
 
-   The Codex default model is `gpt-5.3-codex-spark` for faster, cheaper processing. You can override it with `MODEL_ID`.
+   The Codex default model is `gpt-5.4-mini`, which supports the document-image workflow reliably. You can override it with `MODEL_ID`.
 
    To force Vertex instead:
 
@@ -48,6 +48,11 @@ Run the processor:
 ```bash
 bun run index.ts
 ```
+
+This is a shared temporary workspace. Run `bun run reset:all` before each job,
+move the original and generated JPG/Markdown artifacts into a dedicated case
+project when processing finishes, then run `bun run reset:all` again. See
+`AGENTS.md` for the mandatory agent workflow.
 
 The tool will:
 1. Scan `documents_in` for new images.

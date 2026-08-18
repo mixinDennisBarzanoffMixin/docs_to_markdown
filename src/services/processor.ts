@@ -3,7 +3,7 @@ import { generateText, tool, zodSchema, stepCountIs } from 'ai';
 import { mkdtemp, readFile, rename, rm, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { tmpdir } from 'os';
-import { join, basename, extname } from 'path';
+import { join, basename, extname, resolve } from 'path';
 import { z } from 'zod';
 import type { Config } from '../types';
 import { logger } from '../lib/logger';
@@ -91,6 +91,7 @@ ${previousContext}
     input: MarkdownResult,
     existingOutputFile?: string,
   ): Promise<{ outputFile: string; inputFile: string; content: string }> {
+    this.assertUsefulOcrResult(input);
     logger.info(`[SAVING LOGIC] Preparing to save markdown for file: ${filename}`);
     const normalizedDate = this.normalizeDateForFilename(input.document_date);
     const hasParsedDate = normalizedDate !== 'unknown-date';
@@ -144,6 +145,25 @@ ${previousContext}
     return { outputFile: finalFilename, inputFile: finalImageFilename, content: input.content };
   }
 
+  private assertUsefulOcrResult(input: MarkdownResult): void {
+    const text = `${input.document_title}\n${input.page_subtitle}\n${input.content}`.toLowerCase();
+    const refusalMarkers = [
+      'bitte lade die seite',
+      'bitte laden sie die seite',
+      'bitte erneut einreichen',
+      'nicht lesbar',
+      'nicht verarbeitbar',
+      'keine zuverlässige texterkennung',
+      'cannot access the attached image',
+      'cannot read the attached image',
+      'please re-upload',
+    ];
+
+    if (refusalMarkers.some(marker => text.includes(marker))) {
+      throw new Error('OCR model returned an image-access/refusal response instead of document text.');
+    }
+  }
+
   private async processFileWithCodexCli(params: {
     filename: string;
     previousContext?: string;
@@ -154,7 +174,9 @@ ${previousContext}
     const workDir = await mkdtemp(join(tmpdir(), 'docs-to-markdown-codex-'));
     const schemaPath = join(workDir, 'schema.json');
     const outputPath = join(workDir, 'result.json');
-    const imagePath = join(this.config.inputDir, filename);
+    // Codex may stage an ephemeral working context while processing attachments.
+    // Pass an absolute path so the image remains resolvable in that context.
+    const imagePath = resolve(this.config.inputDir, filename);
     const localCodexBin = join(process.cwd(), 'node_modules', '.bin', 'codex');
     const codexBin = existsSync(localCodexBin) ? localCodexBin : 'codex';
     if (!existsSync(imagePath)) {
