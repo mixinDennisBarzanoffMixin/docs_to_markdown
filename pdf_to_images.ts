@@ -45,6 +45,13 @@ async function main() {
     process.exit(1);
   }
 
+  if (!Bun.which('gs')) {
+    console.error(
+      'Ghostscript `gs` not found. ImageMagick requires it to rasterize PDFs. Install with: brew install ghostscript',
+    );
+    process.exit(1);
+  }
+
   const files = await readdir(INPUT_DIR);
   const pdfs = files.filter(f => /\.pdf$/i.test(f)).sort((a, b) => a.localeCompare(b));
 

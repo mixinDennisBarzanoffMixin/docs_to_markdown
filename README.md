@@ -16,6 +16,12 @@ A CLI tool that uses your local Codex subscription by default, or Google Vertex 
    bun install
    ```
 
+   PDF rasterization also requires ImageMagick and Ghostscript:
+
+   ```bash
+   brew install imagemagick ghostscript
+   ```
+
 2. **Configure AI Provider**
    By default, the tool uses `codex exec` when `$CODEX_HOME/auth.json` or `~/.codex/auth.json` exists. Sign in once with:
 
