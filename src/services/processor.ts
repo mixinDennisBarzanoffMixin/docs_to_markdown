@@ -126,7 +126,8 @@ ${previousContext}
     const finalImagePath = getInputRenamePath(this.config.inputDir, filename, desiredImageFilename);
     const finalImageFilename = basename(finalImagePath);
 
-    const imagePath = `../${this.config.inputDir}/${finalImageFilename}`;
+    const imagePrefix = this.config.imageRefPrefix.replace(/\/$/, '');
+    const imagePath = `${imagePrefix}/${finalImageFilename}`;
     const sourceRef = `\n\n---\n**Source File:** \`${finalImageFilename}\`  \n![Source Image](<${imagePath}>)\n`;
 
     const contentWithRef = input.content + sourceRef;

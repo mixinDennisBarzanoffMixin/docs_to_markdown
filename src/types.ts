@@ -19,6 +19,7 @@ export type ProcessorState = {
 export type Config = {
   aiProvider: 'codex' | 'vertex';
   inputDir: string;
+  imageRefPrefix: string;
   outputDir: string;
   stateFile: string;
   batchSize: number;

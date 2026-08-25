@@ -1,6 +1,7 @@
 export type Config = {
   aiProvider: 'codex' | 'vertex';
   inputDir: string;
+  imageRefPrefix: string;
   outputDir: string;
   stateFile: string;
   batchSize: number;
@@ -21,6 +22,10 @@ function validateConfig(config: Partial<Config>): asserts config is Config {
 
   if (!config.inputDir || typeof config.inputDir !== 'string' || !config.inputDir.trim()) {
     errors.push('INPUT_DIR is missing or invalid.');
+  }
+
+  if (!config.imageRefPrefix || typeof config.imageRefPrefix !== 'string') {
+    errors.push('IMAGE_REF_PREFIX is missing or invalid.');
   }
 
   if (!config.outputDir || typeof config.outputDir !== 'string' || !config.outputDir.trim()) {
@@ -49,6 +54,7 @@ export function loadConfigFromEnv(): Config {
   const auto = process.env.AUTO === 'true' || process.env.AUTO === '1';
   const codexHome = process.env.CODEX_HOME ?? `${process.env.HOME}/.codex`;
   const codexAuthPath = `${codexHome}/auth.json`;
+  const inputDir = process.env.INPUT_DIR ?? 'documents_in';
   const inferredProvider = process.env.AI_PROVIDER === 'vertex' || process.env.AI_PROVIDER === 'codex'
     ? process.env.AI_PROVIDER
     : Bun.file(codexAuthPath).size > 0
@@ -57,7 +63,8 @@ export function loadConfigFromEnv(): Config {
 
   const config: Partial<Config> = {
     aiProvider: inferredProvider,
-    inputDir: process.env.INPUT_DIR ?? 'documents_in',
+    inputDir,
+    imageRefPrefix: process.env.IMAGE_REF_PREFIX ?? `../${inputDir}`,
     outputDir: process.env.OUTPUT_DIR ?? 'markdown_out',
     stateFile: process.env.STATE_FILE ?? '.docproc_state.json',
     batchSize: Number.isFinite(batchSize) && batchSize > 0 ? batchSize : 20,

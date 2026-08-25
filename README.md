@@ -22,6 +22,10 @@ A CLI tool that uses your local Codex subscription by default, or Google Vertex 
    brew install imagemagick ghostscript
    ```
 
+   If the generated Markdown and renamed source images will be archived into the
+   same destination directory, set `IMAGE_REF_PREFIX=.` so image links remain
+   valid after the files are moved out of the processing workspace.
+
 2. **Configure AI Provider**
    By default, the tool uses `codex exec` when `$CODEX_HOME/auth.json` or `~/.codex/auth.json` exists. Sign in once with:
 
