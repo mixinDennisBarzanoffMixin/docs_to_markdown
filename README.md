@@ -33,7 +33,7 @@ A CLI tool that uses your local Codex subscription by default, or Google Vertex 
    codex login
    ```
 
-   The Codex default model is `gpt-5.4-mini`, which supports the document-image workflow reliably. You can override it with `MODEL_ID`.
+   By default, the tool does not pass `--model` to Codex CLI. Codex therefore selects a model supported by the signed-in ChatGPT account. Set `MODEL_ID` only when you intentionally want to pin a model; an unavailable or retired override will fail with the CLI's model-availability error.
 
    To force Vertex instead:
 

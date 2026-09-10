@@ -5,7 +5,7 @@ export type Config = {
   outputDir: string;
   stateFile: string;
   batchSize: number;
-  modelId: string;
+  modelId?: string;
   auto: boolean;
   // Vertex
   vertexProject?: string;
@@ -40,8 +40,11 @@ function validateConfig(config: Partial<Config>): asserts config is Config {
     errors.push('BATCH_SIZE must be a positive integer.');
   }
 
-  if (!config.modelId || typeof config.modelId !== 'string' || !config.modelId.trim()) {
-    errors.push('MODEL_ID is missing or invalid.');
+  if (
+    config.aiProvider === 'vertex' &&
+    (!config.modelId || typeof config.modelId !== 'string' || !config.modelId.trim())
+  ) {
+    errors.push('MODEL_ID is missing or invalid for the Vertex provider.');
   }
 
   if (errors.length > 0) {
@@ -68,7 +71,10 @@ export function loadConfigFromEnv(): Config {
     outputDir: process.env.OUTPUT_DIR ?? 'markdown_out',
     stateFile: process.env.STATE_FILE ?? '.docproc_state.json',
     batchSize: Number.isFinite(batchSize) && batchSize > 0 ? batchSize : 20,
-    modelId: process.env.MODEL_ID ?? (inferredProvider === 'codex' ? 'gpt-5.4-mini' : 'gemini-2.5-flash'),
+    // Let Codex CLI resolve the model supported by the signed-in account unless
+    // the caller explicitly pins MODEL_ID. Hard-coded Codex model names age out.
+    modelId: process.env.MODEL_ID?.trim() ||
+      (inferredProvider === 'vertex' ? 'gemini-2.5-flash' : undefined),
     auto,
     vertexProject:
       process.env.GOOGLE_VERTEX_PROJECT ?? process.env.GCLOUD_PROJECT ?? undefined,

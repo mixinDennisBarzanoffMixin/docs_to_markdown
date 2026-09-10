@@ -23,7 +23,7 @@ export type Config = {
   outputDir: string;
   stateFile: string;
   batchSize: number;
-  modelId: string;
+  modelId?: string;
   auto: boolean;
   vertexProject?: string;
   vertexLocation?: string;

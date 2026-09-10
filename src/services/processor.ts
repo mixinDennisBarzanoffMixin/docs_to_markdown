@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { Config } from '../types';
 import { logger } from '../lib/logger';
 import { getInputRenamePath, getOutputPath, sanitizeFilename } from '../lib/file-system';
+import { buildCodexExecArgs } from './codex-command';
 
 const markdownResultSchema = z.object({
   document_date: z.string().describe('Document date found in content (prefer DD.MM.YYYY or YYYY-MM-DD).'),
@@ -31,7 +32,7 @@ export class DocumentProcessor {
       location: this.config.vertexLocation,
     });
 
-    return vertex(this.config.modelId as any);
+    return vertex(this.config.modelId! as any);
   }
 
   private buildInstructions(previousContext: string | undefined, outputMode: 'tool' | 'json'): string {
@@ -205,27 +206,14 @@ Please convert the attached document image to markdown and return only the reque
       await writeFile(schemaPath, JSON.stringify(schema), 'utf8');
 
       const proc = Bun.spawn(
-        [
+        buildCodexExecArgs({
           codexBin,
-          'exec',
-          '--ephemeral',
-          '--ignore-user-config',
-          '--config',
-          'model_reasoning_effort="low"',
-          '--config',
-          'service_tier="priority"',
-          '--sandbox',
-          'read-only',
-          '--model',
-          this.config.modelId,
-          '--image',
+          modelId: this.config.modelId,
           imagePath,
-          '--output-schema',
           schemaPath,
-          '--output-last-message',
           outputPath,
           prompt,
-        ],
+        }),
         {
           cwd: process.cwd(),
           stdout: 'pipe',
