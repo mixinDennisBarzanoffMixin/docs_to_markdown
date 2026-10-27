@@ -16,3 +16,10 @@ For every OCR job:
 
 Do not delete, overwrite, or mix another active job's files. If either workspace
 directory is non-empty at the start, inspect it before resetting.
+
+## Finishing changes
+
+The user expects completed, authorized changes to be committed and pushed to the
+existing remote branch. Verify that the remote contains the commit. Stage only
+task-related files and preserve unrelated changes. Push source-case imports in
+their own repository as well; do not commit temporary OCR workspace artifacts.

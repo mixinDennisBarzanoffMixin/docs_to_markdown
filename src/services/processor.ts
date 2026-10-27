@@ -3,7 +3,7 @@ import { generateText, tool, zodSchema, stepCountIs } from 'ai';
 import { mkdtemp, readFile, rename, rm, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { tmpdir } from 'os';
-import { join, basename, extname, resolve } from 'path';
+import { join, basename, extname, resolve, delimiter } from 'path';
 import { z } from 'zod';
 import type { Config } from '../types';
 import { logger } from '../lib/logger';
@@ -180,7 +180,11 @@ ${previousContext}
     // Pass an absolute path so the image remains resolvable in that context.
     const imagePath = resolve(this.config.inputDir, filename);
     const localCodexBin = join(process.cwd(), 'node_modules', '.bin', 'codex');
-    const codexBin = existsSync(localCodexBin) ? localCodexBin : 'codex';
+    // Package scripts prepend node_modules/.bin; search outside those first.
+    const installedCliPath = (process.env.PATH ?? '').split(delimiter)
+      .filter(p => !/[\\/]node_modules[\\/]\.bin[\\/]?$/.test(p)).join(delimiter);
+    const codexBin = process.env.CODEX_BIN?.trim() || Bun.which('codex', { PATH: installedCliPath }) ||
+      (existsSync(localCodexBin) ? localCodexBin : 'codex');
     if (!existsSync(imagePath)) {
       throw new Error(`Input image does not exist: ${imagePath}`);
     }

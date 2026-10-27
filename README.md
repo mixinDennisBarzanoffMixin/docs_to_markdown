@@ -33,7 +33,7 @@ A CLI tool that uses your local Codex subscription by default, or Google Vertex 
    codex login
    ```
 
-   By default, the tool does not pass `--model` to Codex CLI. Codex therefore selects a model supported by the signed-in ChatGPT account. Set `MODEL_ID` only when you intentionally want to pin a model; an unavailable or retired override will fail with the CLI's model-availability error.
+   Codex OCR defaults to `gpt-6-luna`. Set `MODEL_ID` to select another model supported by the signed-in account. The tool prefers the Codex CLI on `PATH` over the bundled version so an older bundled CLI does not block newer models. Set `CODEX_BIN` to choose a specific executable.
 
    To force Vertex instead:
 

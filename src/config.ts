@@ -71,10 +71,9 @@ export function loadConfigFromEnv(): Config {
     outputDir: process.env.OUTPUT_DIR ?? 'markdown_out',
     stateFile: process.env.STATE_FILE ?? '.docproc_state.json',
     batchSize: Number.isFinite(batchSize) && batchSize > 0 ? batchSize : 20,
-    // Let Codex CLI resolve the model supported by the signed-in account unless
-    // the caller explicitly pins MODEL_ID. Hard-coded Codex model names age out.
+    // Use Luna for OCR unless the caller explicitly selects another model.
     modelId: process.env.MODEL_ID?.trim() ||
-      (inferredProvider === 'vertex' ? 'gemini-2.5-flash' : undefined),
+      (inferredProvider === 'vertex' ? 'gemini-2.5-flash' : 'gpt-6-luna'),
     auto,
     vertexProject:
       process.env.GOOGLE_VERTEX_PROJECT ?? process.env.GCLOUD_PROJECT ?? undefined,
